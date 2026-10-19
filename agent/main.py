@@ -22,6 +22,7 @@ from agent.memory import (
     inicializar_db,
     liberar_evento,
     limpiar_eventos_viejos,
+    limpiar_historial,
     marcar_evento_procesado,
     obtener_historial,
 )
@@ -44,6 +45,11 @@ logger = logging.getLogger("agentkit")
 logger.setLevel(logging.DEBUG if ENVIRONMENT == "development" else logging.INFO)
 
 PORT = int(os.getenv("PORT", "8000"))
+
+# Palabra que borra el historial de quien la escribe, para repetir la demo desde cero.
+# Solo afecta la conversacion del propio remitente, nunca la de otros clientes.
+COMANDO_REINICIAR = "reiniciar"
+MENSAJE_REINICIO = "Conversación reiniciada. Escriba «Hola» para comenzar de nuevo."
 
 # Un candado por numero de telefono. En WhatsApp es normal que alguien mande "hola" y
 # medio segundo despues la pregunta de verdad: sin esto los dos mensajes se procesarian
@@ -175,6 +181,13 @@ async def procesar_mensaje(msg: MensajeEntrante):
 
     async with _candados[msg.telefono]:
         try:
+            if msg.texto.strip().lower() == COMANDO_REINICIAR:
+                await limpiar_historial(msg.telefono)
+                if not await proveedor.enviar_mensaje(msg.telefono, MENSAJE_REINICIO, msg.contexto):
+                    await liberar_evento(evento_id)
+                logger.info(f"Historial reiniciado para {msg.telefono}")
+                return
+
             # El historial se lee ANTES de guardar el mensaje actual: brain.py agrega
             # el mensaje nuevo al final, y asi no queda duplicado.
             historial = await obtener_historial(msg.telefono)
